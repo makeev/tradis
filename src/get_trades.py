@@ -6,10 +6,11 @@ import sys
 import time
 from datetime import datetime
 
+import click
 import websocket
 from termcolor import cprint
 
-from config import get_redis_client, instruments, get_ib_instance
+from config import get_redis_client, get_config, get_ib_instance
 
 log = logging.getLogger(__name__)
 
@@ -19,14 +20,6 @@ logging.basicConfig(
     level=logging.DEBUG,
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
 )
-
-
-ib = get_ib_instance()
-URL = "wss://%s/portal.proxy/v1/portal/ws" % ib.base_hostname
-# URL = "wss://ndcdyn.interactivebrokers.com/portal.proxy/v1/portal/ws"
-# URL = ' https://ndcdyn.interactivebrokers.com'
-print('WEBSOCKET URL: %s' % URL)
-# exit()
 
 
 def send_message(data, instruments, redis_client):
@@ -63,8 +56,9 @@ def parse_data(d, instruments, redis_client):
         cprint(f"Bad JSON? {d}, {e}", "red")
 
 
-def worker(hb_queue, data_queue):
-    ib = get_ib_instance()
+def worker(config, hb_queue, data_queue):
+    print(config)
+    ib = get_ib_instance(config)
 
     ib.load_session()
     cp = ib.session.cookies.get("cp")
@@ -72,12 +66,12 @@ def worker(hb_queue, data_queue):
     print("CP", cp)
 
     cprint("CONNECT", "green")
-    ws = websocket.create_connection(URL, cookie=f"cp={cp}")
+    ws = websocket.create_connection(ib.get_websocket_url(), cookie=f"cp={cp}")
 
     time.sleep(1)
 
     cprint("SUBSCRIBE", "green")
-    for instrument in instruments:
+    for instrument in config['instruments']:
         conid = instrument["conid"]
         ws.send(f"smd+{conid}+" + '{"fields":["31"]}')
 
@@ -112,7 +106,7 @@ def worker(hb_queue, data_queue):
         data_queue.put("CLOSED")
 
     except KeyboardInterrupt:
-        for instrument in instruments:
+        for instrument in config['instruments']:
             conid = instrument["conid"]
             ws.send(f"umd+{conid}" + '{}')
         cprint(f"STOPPED", "red")
@@ -137,20 +131,24 @@ def watchdog(hb_queue, data_queue):
 
 
 def start_process(hb_queue, data_queue):
+    config = get_config()
     process = mp.Process(
         target=worker,
-        args=(hb_queue, data_queue),
+        args=(config, hb_queue, data_queue),
     )
     process.start()
     return process
 
 
-def main():
+@click.command()
+@click.argument('config_path', type=click.Path(exists=True))
+def main(config_path):
     """The main process"""
+    config = get_config(config_path)
+    redis_client = get_redis_client(config)
+
     hb_queue = mp.Queue()
     data_queue = mp.Queue()
-
-    redis_client = get_redis_client()
 
     watchdog_process = mp.Process(
         target=watchdog,
@@ -171,7 +169,7 @@ def main():
 
         if msg and msg[0] == "{":
             # Сообщение от IBKR
-            parse_data(msg, instruments, redis_client)
+            parse_data(msg, config['instruments'], redis_client)
 
         elif msg == "KILL WORKER":
             cprint("[MAIN]: Terminating slacking WORKER", "yellow")

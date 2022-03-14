@@ -31,18 +31,18 @@ instruments:
 ```
 
 
-## session_keeper.py
+## session_keeper.py ../config_example.yaml
 
 Поддерживает живую торговую сессию для аккаунта из конфига.
 Сессию складывает в Redis. Должен быть запущен, чтобы у скриптов ниже была живая сессия.
 
 
-## get_bars.py
+## get_bars.py ../config_example.yaml
 
 Загружает минутные бары. Сохраняет dash.csv для отображения дашборда по наличию данных.
 
 
-## get_trades.py
+## get_trades.py ../config_example.yaml
 
 Подписывается на стрим сделок и кладет их в Redis.
 

@@ -1,11 +1,16 @@
 from time import sleep
 
+import click
 from termcolor import cprint
+from config import get_config, get_ib_instance
 
-from config import *
 
-
-def main(ib):
+@click.command()
+@click.argument('config_path', type=click.Path(exists=True))
+def main(config_path):
+    config = get_config(config_path)
+    ib = get_ib_instance(config)
+    ib.load_session()
 
     while True:
         # Проверить, есть жива ли SSO-сессия
@@ -56,10 +61,7 @@ def main(ib):
 
 
 if __name__ == "__main__":
-    ib = get_ib_instance()
-    ib.load_session()
-
     try:
-        main(ib)
+        main()
     except KeyboardInterrupt:
         print("DONE")

@@ -1,6 +1,8 @@
 import json
 import sys
 import logging
+
+import click
 import orjson
 import pandas_market_calendars as mcal
 from time import sleep
@@ -10,7 +12,8 @@ from collections import Counter
 from termcolor import cprint
 from datetime import datetime, timedelta, timezone
 from os.path import abspath, join, dirname
-from config import get_ib_instance, instruments, dashboard_csv_path, get_redis_client
+
+from config import get_config, get_ib_instance, get_redis_client
 
 log = logging.getLogger("loader")
 
@@ -21,9 +24,6 @@ logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
 )
 
-ib = get_ib_instance()
-PORTAL_URL = "https://%s/portal.proxy/v1/portal" % ib.base_hostname
-HISTORY_URL = PORTAL_URL + "/iserver/marketdata/history"
 
 EXCHANGE_SCHEDULE = {
     "NASDAQ": "NASDAQ",
@@ -184,7 +184,8 @@ def load_intervals_from_ibkr(ib, instrument, period, data_grid):
     try:
         ib.reset_session()
         ib.load_session()
-        res_json = ib.iserver_request(HISTORY_URL + q, "GET")
+        history_url = "%s/iserver/marketdata/history" % ib.get_portal_url()
+        res_json = ib.iserver_request(history_url + q, "GET")
         print(res_json)
         print('='*80)
     except Exception as e:
@@ -434,20 +435,24 @@ def loader(ib, dt_start, instruments, redis_client):
             sleep(sleep_time)
 
 
-def main(ib):
+@click.command()
+@click.argument('config_path', type=click.Path(exists=True))
+def main(config_path):
+    config = get_config(config_path)
+    ib = get_ib_instance(config)
     base_dir = abspath(dirname(__file__))
-    csv_path = abspath(join(base_dir, dashboard_csv_path))
+    csv_path = abspath(join(base_dir, config['dashboard_csv_path']))
 
     prev_dt = datetime(2000, 1, 1)
-    redis_client = get_redis_client()
+    redis_client = get_redis_client(config)
 
     while True:
         dt = datetime.utcnow()
         if dt.minute != prev_dt.minute and dt.second > 10:
             # Начать загрузку нового минутного интервала
             prev_dt = dt
-            loader(ib, dt, instruments, redis_client)
-            update_dash(instruments, csv_path, redis_client)
+            loader(ib, dt, config['instruments'], redis_client)
+            update_dash(config['instruments'], csv_path, redis_client)
             # redis_client.close()
             print()
             print("-------- конец итерации ---------", datetime.utcnow())
@@ -457,9 +462,8 @@ def main(ib):
 
 
 if __name__ == "__main__":
-    ib = get_ib_instance()
 
     try:
-        main(ib)
+        main()
     except KeyboardInterrupt:
         print("DONE")
