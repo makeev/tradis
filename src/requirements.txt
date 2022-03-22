@@ -7,3 +7,5 @@ orjson==3.6.7
 pandas-market-calendars==3.4
 git+ssh://git@github.com/stopdesign/ibkr_web_api@develop#egg=ibkr_web_api
 click==8.0.4
+aioredis==2.0.1
+websockets==10.2
