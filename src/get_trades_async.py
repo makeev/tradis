@@ -107,11 +107,13 @@ class IbkrWebsocketClient(WebSocketClientProtocol):
     async def do_handle_status(self, json_data):
         args = json_data.get('args', {})
         authenticated = args.get('authenticated')
+        fail = args.get("fail")
         if authenticated is not None:
-            if authenticated:
+            if authenticated and not fail:
                 cprint("авторизовались!", "green")
             else:
-                cprint("не авторизовались :-(", "red")
+                cprint("не авторизовались :-( %s" % fail, "red")
+                # @TODO тут как-то убивать сессию в session_keeper
 
         # @TODO тут как-то обрабатывать статусы и слать в телегу
 
@@ -170,6 +172,11 @@ class IbkrWebsocketClient(WebSocketClientProtocol):
             topic = json_data.get('topic', '')
             if json_data.get('message') == 'waiting for session':  # authentication
                 await self.do_auth()
+            elif json_data.get("error"):
+                cprint("error: %s" % json_data, "red")
+                await asyncio.sleep(5)
+                # пробуем реавторизоваться
+                await self.do_auth()
             elif json_data.get('hb'):  # heartbeat
                 await self.do_heartbeat(json_data)
             elif topic.startswith('smd'):  # market data
@@ -190,7 +197,7 @@ class IbkrWebsocketClient(WebSocketClientProtocol):
                 await self.do_handle_status(json_data)
             elif topic == 'system':
                 await self.do_handle_system(json_data)
-            elif topic == 'nt':
+            elif topic == 'ntf':
                 await self.do_handle_notification(json_data)
             elif topic == 'blt':
                 await self.do_handle_bulletin(json_data)
@@ -220,7 +227,7 @@ class IbkrWebsocketClient(WebSocketClientProtocol):
         return data
 
     async def send(self, message):
-        cprint('send: %s' % message, "yellow")
+        cprint('send: %s' % message, "white")
         return await super().send(message)
 
     async def force_close(self):
