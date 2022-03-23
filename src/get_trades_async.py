@@ -31,6 +31,7 @@ class IbkrWebsocketClient(WebSocketClientProtocol):
     get_redis_func = None
 
     current_time_seconds = time.time()  # обновляется при каждом recv
+    authenticated = False
 
     # protected
     _last_data_ts = {}  # когда приходили последние данные по инструментам
@@ -111,9 +112,11 @@ class IbkrWebsocketClient(WebSocketClientProtocol):
         if authenticated is not None:
             if authenticated and not fail:
                 cprint("авторизовались!", "green")
+                self.authenticated = True
             else:
                 cprint("не авторизовались :-( %s" % fail, "red")
                 # @TODO тут как-то убивать сессию в session_keeper
+                self.authenticated = False
 
         # @TODO тут как-то обрабатывать статусы и слать в телегу
 
@@ -210,19 +213,23 @@ class IbkrWebsocketClient(WebSocketClientProtocol):
         else:
             cprint('пришло что-то новое и непонятное: %s' % text_data)
 
-        # проверяем надо ли обновить подписку
-        for instrument in self.config['instruments']:
-            conid = instrument["conid"]
-            last_data_ts = self._last_data_ts.get(conid, 0)
-            if time.time() - last_data_ts > 10:
-                # данных не было 10 секунд, пробуем подписаться заново
-                cmd = f"smd+{conid}+" + '{"fields":["31"]}'
-                await self.send(cmd)
+        if self.authenticated:
+            # проверяем надо ли обновить подписку
+            for instrument in self.config['instruments']:
+                conid = instrument["conid"]
+                last_data_ts = self._last_data_ts.get(conid, 0)
+                if time.time() - last_data_ts > 10:
+                    # данных не было 10 секунд, пробуем подписаться заново
+                    cmd = f"smd+{conid}+" + '{"fields":["31"]}'
+                    await self.send(cmd)
 
-        # tic
-        if self.current_time_seconds - self._last_tic_seconds >= TIC_EVERY_SECONDS:
-            await self.send('tic')
-            self._last_tic_seconds = self.current_time_seconds
+                    # чтобы не подписываться 800 раз пока не придет ответ
+                    self._last_data_ts[conid] = time.time()
+
+            # tic
+            if self.current_time_seconds - self._last_tic_seconds >= TIC_EVERY_SECONDS:
+                await self.send('tic')
+                self._last_tic_seconds = self.current_time_seconds
 
         return data
 
